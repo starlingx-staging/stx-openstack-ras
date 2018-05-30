@@ -1,17 +1,9 @@
 #!/bin/sh
+# OpenStack DC Orchestrator Engine Service (dcorch-engine)
 #
+# Description:  Manages an OpenStack DC Orchestrator Engine Service (dcorch-engine) process as an HA resource
 #
-# OpenStack Cinder API (cinder-api)
-#
-# Description:  Manages an OpenStack Cinder API (cinder-api) process as an HA resource
-#
-# Authors:      Emilien Macchi
-# Mainly inspired by the Nova API written by Sebastien Han
-#
-# Support:      openstack@lists.launchpad.net
-# License:      Apache Software License (ASL) 2.0
-#
-# Copyright (c) 2014 Wind River Systems, Inc.
+# Copyright (c) 2017 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -23,10 +15,6 @@
 #   OCF_RESKEY_config
 #   OCF_RESKEY_user
 #   OCF_RESKEY_pid
-#   OCF_RESKEY_os_username
-#   OCF_RESKEY_os_password
-#   OCF_RESKEY_os_tenant_name
-#   OCF_RESKEY_keystone_get_token_url
 #   OCF_RESKEY_additional_parameters
 #######################################################################
 # Initialization:
@@ -38,19 +26,15 @@
 
 # Fill in some defaults if no values are specified
 
-OCF_RESKEY_binary_default="cinder-api"
-OCF_RESKEY_config_default="/etc/cinder/cinder.conf"
-OCF_RESKEY_user_default="cinder"
+OCF_RESKEY_binary_default="/usr/bin/dcorch-engine"
+OCF_RESKEY_config_default="/etc/dcorch/dcorch.conf"
+OCF_RESKEY_user_default="root"
 OCF_RESKEY_pid_default="$HA_RSCTMP/$OCF_RESOURCE_INSTANCE.pid"
-OCF_RESKEY_url_default="http://127.0.0.1:8776/v1/"
-OCF_RESKEY_keystone_get_token_url_default="http://127.0.0.1:5000/v2.0/tokens"
 
 : ${OCF_RESKEY_binary=${OCF_RESKEY_binary_default}}
 : ${OCF_RESKEY_config=${OCF_RESKEY_config_default}}
 : ${OCF_RESKEY_user=${OCF_RESKEY_user_default}}
 : ${OCF_RESKEY_pid=${OCF_RESKEY_pid_default}}
-: ${OCF_RESKEY_url=${OCF_RESKEY_url_default}}
-: ${OCF_RESKEY_keystone_get_token_url=${OCF_RESKEY_keystone_get_token_url_default}}
 
 #######################################################################
 
@@ -58,14 +42,14 @@ usage() {
     cat <<UEND
         usage: $0 (start|stop|validate-all|meta-data|status|monitor)
 
-        $0 manages an OpenStack Cinder API (cinder-api) process as an HA resource 
+        $0 manages an OpenStack DC Orchestrator Engine (dcorch-engine) process as an HA resource
 
-        The 'start' operation starts the cinder-api service.
-        The 'stop' operation stops the cinder-api service.
+        The 'start' operation starts the dcorch-engine service.
+        The 'stop' operation stops the dcorch-engine service.
         The 'validate-all' operation reports whether the parameters are valid
         The 'meta-data' operation reports this RA's meta-data information
-        The 'status' operation reports whether the cinder-api service is running
-        The 'monitor' operation reports whether the cinder-api service seems to be working
+        The 'status' operation reports whether the dcorch-engine service is running
+        The 'monitor' operation reports whether the dcorch-engine service seems to be working
 
 UEND
 }
@@ -74,95 +58,52 @@ meta_data() {
     cat <<END
 <?xml version="1.0"?>
 <!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
-<resource-agent name="cinder-api">
+<resource-agent name="dcorch-engine">
 <version>1.0</version>
 
 <longdesc lang="en">
-Resource agent for the OpenStack Cinder API Service (cinder-api)
-May manage a cinder-api instance or a clone set that 
-creates a distributed cinder-api cluster.
+Resource agent for the DC Orchestrator Engine Service (dcorch-engine)
 </longdesc>
-<shortdesc lang="en">Manages the OpenStack Cinder API (cinder-api)</shortdesc>
+<shortdesc lang="en">Manages the OpenStack DC Orchestrator Engine Service(dcorch-engine)</shortdesc>
 <parameters>
 
 <parameter name="binary" unique="0" required="0">
 <longdesc lang="en">
-Location of the OpenStack Cinder API server binary (cinder-api)
+Location of the DC Orchestrator Engine binary (dcorch-engine)
 </longdesc>
-<shortdesc lang="en">OpenStack Cinder API server binary (cinder-api)</shortdesc>
+<shortdesc lang="en">DC Orchestrator Engine binary (dcorch-engine)</shortdesc>
 <content type="string" default="${OCF_RESKEY_binary_default}" />
 </parameter>
 
 <parameter name="config" unique="0" required="0">
 <longdesc lang="en">
-Location of the OpenStack Cinder API (cinder-api) configuration file
+Location of the DC Orchestrator Engine (dcorch-engine) configuration file
 </longdesc>
-<shortdesc lang="en">OpenStack Cinder API (cinder-api registry) config file</shortdesc>
+<shortdesc lang="en">DC Orchestrator Engine (dcorch-engine registry) config file</shortdesc>
 <content type="string" default="${OCF_RESKEY_config_default}" />
 </parameter>
 
 <parameter name="user" unique="0" required="0">
 <longdesc lang="en">
-User running OpenStack Cinder API (cinder-api)
+User running DC Orchestrator Engine (dcorch-engine)
 </longdesc>
-<shortdesc lang="en">OpenStack Cinder API (cinder-api) user</shortdesc>
+<shortdesc lang="en">DC Orchestrator Engine (dcorch-engine) user</shortdesc>
 <content type="string" default="${OCF_RESKEY_user_default}" />
 </parameter>
 
 <parameter name="pid" unique="0" required="0">
 <longdesc lang="en">
-The pid file to use for this OpenStack Cinder API (cinder-api) instance
+The pid file to use for this DC Orchestrator Engine (dcorch-engine) instance
 </longdesc>
-<shortdesc lang="en">OpenStack Cinder API (cinder-api) pid file</shortdesc>
+<shortdesc lang="en">DC Orchestrator Engine (dcorch-engine) pid file</shortdesc>
 <content type="string" default="${OCF_RESKEY_pid_default}" />
-</parameter>
-
-<parameter name="url" unique="0" required="0">
-<longdesc lang="en">
-The default URL to use for monitoring this instance (cinder-api) via curl. Important note: the monitor function doesn't accept http return code different than 200, for instance redirection code will generate an error. Don't forget the '/' at the end of your url endpoint. For example http://127.0.0.1:8776/v1 won't work and http://127.0.0.1:8776/v1/ will.
-</longdesc>
-<shortdesc lang="en">OpenStack Cinder API (cinder-api) monitor url</shortdesc>
-<content type="string" default="${OCF_RESKEY_url_default}" />
-</parameter>
-
-<parameter name="keystone_get_token_url" unique="0" required="0">
-<longdesc lang="en">
-The default URL to use to acquire a Cinder API (cinder-api) token for monitoring this instance
-of OpenStack Cinder API (cinder-api)
-</longdesc>
-<shortdesc lang="en">OpenStack Cinder API (cinder-api) url</shortdesc>
-<content type="string" default="${OCF_RESKEY_keystone_get_token_url_default}" />
-</parameter>
-
-<parameter name="os_username" unique="0" required="0">
-<longdesc lang="en">
-The username to use when connecting with Cinder API (cinder-api) for monitoring purposes
-</longdesc>
-<shortdesc lang="en">Cinder API (cinder-api) monitoring login</shortdesc>
-<content type="string" />
-</parameter>
-
-<parameter name="os_password" unique="0" required="0">
-<longdesc lang="en">
-The password to use when connecting Cinder API (cinder-api) for monitoring purposes
-</longdesc>
-<shortdesc lang="en">Cinder API (cinder-api) monitoring password</shortdesc>
-<content type="string" />
-</parameter>
-
-<parameter name="os_tenant_name" unique="0" required="0">
-<longdesc lang="en">
-The tenant to use when connecting Cinder API (cinder-api) for monitoring purposes
-</longdesc>
-<shortdesc lang="en">Cinder API (cinder-api) monitoring tenant</shortdesc>
-<content type="string" />
 </parameter>
 
 <parameter name="additional_parameters" unique="0" required="0">
 <longdesc lang="en">
-Additional parameters to pass on to the OpenStack Cinder API (cinder-api)
+Additional parameters to pass on to the OpenStack DC Orchestrator Engine (dcorch-engine)
 </longdesc>
-<shortdesc lang="en">Additional parameters for cinder-api</shortdesc>
+<shortdesc lang="en">Additional parameters for dcorch-engine</shortdesc>
 <content type="string" />
 </parameter>
 
@@ -183,7 +124,7 @@ END
 #######################################################################
 # Functions invoked by resource manager actions
 
-cinder_api_validate() {
+dcorch_engine_validate() {
     local rc
 
     check_binary $OCF_RESKEY_binary
@@ -192,7 +133,7 @@ cinder_api_validate() {
     check_binary grep
     check_binary cut
     check_binary head
-    
+
     # A config file on shared storage that is not available
     # during probes is OK.
     if [ ! -f $OCF_RESKEY_config ]; then
@@ -213,12 +154,12 @@ cinder_api_validate() {
     true
 }
 
-cinder_api_status() {
+dcorch_engine_status() {
     local pid
     local rc
 
     if [ ! -f $OCF_RESKEY_pid ]; then
-        ocf_log info "OpenStack Cinder API (cinder-api) is not running"
+        ocf_log info "DC Orchestrator Engine (dcorch-engine) is not running"
         return $OCF_NOT_RUNNING
     else
         pid=`cat $OCF_RESKEY_pid`
@@ -229,16 +170,16 @@ cinder_api_status() {
     if [ $rc -eq 0 ]; then
         return $OCF_SUCCESS
     else
-        ocf_log info "Old PID file found, but OpenStack Cinder API (cinder-api) is not running"
+        ocf_log info "Old PID file found, but DC Orchestrator Engine (dcorch-engine) is not running"
         rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
 
-cinder_api_monitor() {
+dcorch_engine_monitor() {
     local rc
 
-    cinder_api_status
+    dcorch_engine_status
     rc=$?
 
     # If status returned anything but success, return that immediately
@@ -246,31 +187,26 @@ cinder_api_monitor() {
         return $rc
     fi
 
-    # Check detailed information about this specific version of the API.
-    if [ -n "$OCF_RESKEY_os_username"] && [ -n "$OCF_RESKEY_os_tenant_name" ] && [ -n "$OCF_RESKEY_keystone_get_token_url" ]; then
-       ./validation $OCF_RESKEY_keystone_get_token_url $OCF_RESKEY_os_username $OCF_RESKEY_os_tenant_name
-       rc=$?
-       if [ $rc -ne 0 ]; then
-           ocf_log err "Failed to connect to the OpenStack Cinder API (cinder-api): $rc"
-           return $OCF_NOT_RUNNING
-       fi
-    fi
+    # Further verify the service availibility.
 
-    ocf_log debug "OpenStack Cinder API (cinder-api) monitor succeeded"
+    ocf_log debug "DC Orchestrator Engine (dcorch-engine) monitor succeeded"
     return $OCF_SUCCESS
 }
 
-cinder_api_start() {
+dcorch_engine_start() {
     local rc
 
-    cinder_api_status
+    dcorch_engine_status
     rc=$?
     if [ $rc -eq $OCF_SUCCESS ]; then
-        ocf_log info "OpenStack Cinder API (cinder-api) already running"
+        ocf_log info "DC Orchestrator Engine (dcorch-engine) already running"
         return $OCF_SUCCESS
     fi
 
-    # run the actual cinder-api daemon. Don't use ocf_run as we're sending the tool's output
+    # Change the working dir to /, to be sure it's accesible
+    cd /
+
+    # run the actual dcorch-engine daemon. Don't use ocf_run as we're sending the tool's output
     # straight to /dev/null anyway and using ocf_run would break stdout-redirection here.
     su ${OCF_RESKEY_user} -s /bin/sh -c "${OCF_RESKEY_binary} --config-file=$OCF_RESKEY_config \
        $OCF_RESKEY_additional_parameters"' >> /dev/null 2>&1 & echo $!' > $OCF_RESKEY_pid
@@ -278,21 +214,21 @@ cinder_api_start() {
     # Spin waiting for the server to come up.
     # Let the CRM/LRM time us out if required
     while true; do
-    cinder_api_monitor
+    dcorch_engine_monitor
     rc=$?
     [ $rc -eq $OCF_SUCCESS ] && break
     if [ $rc -ne $OCF_NOT_RUNNING ]; then
-        ocf_log err "OpenStack Cinder API (cinder-api) start failed"
+        ocf_log err "DC Orchestrator Engine (dcorch-engine) start failed"
         exit $OCF_ERR_GENERIC
     fi
     sleep 1
     done
 
-    ocf_log info "OpenStack Cinder API (cinder-api) started"
+    ocf_log info "DC Orchestrator Engine (dcorch-engine) started"
     return $OCF_SUCCESS
 }
 
-cinder_api_confirm_stop() {
+dcorch_engine_confirm_stop() {
     local my_bin
     local my_processes
 
@@ -306,15 +242,15 @@ cinder_api_confirm_stop() {
     fi
 }
 
-cinder_api_stop() {
+dcorch_engine_stop() {
     local rc
     local pid
 
-    cinder_api_status
+    dcorch_engine_status
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
-        ocf_log info "OpenStack Cinder API (cinder-api) already stopped"
-        cinder_api_confirm_stop
+        ocf_log info "DC Orchestrator Engine (dcorch-engine) already stopped"
+        dcorch_engine_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -323,8 +259,8 @@ cinder_api_stop() {
     ocf_run kill -s TERM $pid
     rc=$?
     if [ $rc -ne 0 ]; then
-        ocf_log err "OpenStack Cinder API (cinder-api) couldn't be stopped"
-        cinder_api_confirm_stop
+        ocf_log err "DC Orchestrator Engine (dcorch-engine) couldn't be stopped"
+        dcorch_engine_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -335,27 +271,27 @@ cinder_api_stop() {
     fi
     count=0
     while [ $count -lt $shutdown_timeout ]; do
-        cinder_api_status
+        dcorch_engine_status
         rc=$?
         if [ $rc -eq $OCF_NOT_RUNNING ]; then
             break
         fi
         count=`expr $count + 1`
         sleep 1
-        ocf_log debug "OpenStack Cinder API (cinder-api) still hasn't stopped yet. Waiting ..."
+        ocf_log debug "DC Orchestrator Engine (dcorch-engine) still hasn't stopped yet. Waiting ..."
     done
 
-    cinder_api_status
+    dcorch_engine_status
     rc=$?
     if [ $rc -ne $OCF_NOT_RUNNING ]; then
         # SIGTERM didn't help either, try SIGKILL
-        ocf_log info "OpenStack Cinder API (cinder-api) failed to stop after ${shutdown_timeout}s \
+        ocf_log info "DC Orchestrator Engine (dcorch-engine) failed to stop after ${shutdown_timeout}s \
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
-    cinder_api_confirm_stop
+    dcorch_engine_confirm_stop
 
-    ocf_log info "OpenStack Cinder API (cinder-api) stopped"
+    ocf_log info "DC Orchestrator Engine (dcorch-engine) stopped"
 
     rm -f $OCF_RESKEY_pid
 
@@ -372,14 +308,14 @@ case "$1" in
 esac
 
 # Anything except meta-data and help must pass validation
-cinder_api_validate || exit $?
+dcorch_engine_validate || exit $?
 
 # What kind of method was invoked?
 case "$1" in
-  start)        cinder_api_start;;
-  stop)         cinder_api_stop;;
-  status)       cinder_api_status;;
-  monitor)      cinder_api_monitor;;
+  start)        dcorch_engine_start;;
+  stop)         dcorch_engine_stop;;
+  status)       dcorch_engine_status;;
+  monitor)      dcorch_engine_monitor;;
   validate-all) ;;
   *)            usage
                 exit $OCF_ERR_UNIMPLEMENTED;;

@@ -11,6 +11,10 @@
 # Support:      openstack@lists.launchpad.net
 # License:      Apache Software License (ASL) 2.0
 #
+# Copyright (c) 2014 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
 #
 # See usage() function below for more details ...
 #
@@ -193,6 +197,7 @@ neutron_metadata_agent_status() {
         return $OCF_SUCCESS
     else
         ocf_log info "Old PID file found, but OpenStack Neutron Metadata Agent (neutron-metadata-agent) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
@@ -214,6 +219,7 @@ neutron_metadata_agent_monitor() {
         return $OCF_SUCCESS
     else
         ocf_log info "Old PID file found, but OpenStack Neutron Metadata Agent (neutron-metadata-agent) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
@@ -252,6 +258,20 @@ neutron_metadata_agent_start() {
     return $OCF_SUCCESS
 }
 
+neutron_metadata_agent_confirm_stop() {
+    local my_bin
+    local my_processes
+
+    my_binary=`which ${OCF_RESKEY_binary}`
+    my_processes=`pgrep -l -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"`
+
+    if [ -n "${my_processes}" ]
+    then
+        ocf_log info "About to SIGKILL the following: ${my_processes}"
+        pkill -KILL -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"
+    fi
+}
+
 neutron_metadata_agent_stop() {
     local rc
     local pid
@@ -260,6 +280,7 @@ neutron_metadata_agent_stop() {
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
         ocf_log info "OpenStack Neutron Metadata Agent (neutron-metadata-agent) already stopped"
+        neutron_metadata_agent_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -269,6 +290,7 @@ neutron_metadata_agent_stop() {
     rc=$?
     if [ $rc -ne 0 ]; then
         ocf_log err "OpenStack Neutron Metadata Agent (neutron-metadata-agent) couldn't be stopped"
+        neutron_metadata_agent_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -297,6 +319,7 @@ neutron_metadata_agent_stop() {
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
+    neutron_metadata_agent_confirm_stop
 
     ocf_log info "OpenStack Neutron Metadata Agent (neutron-metadata-agent) stopped"
 

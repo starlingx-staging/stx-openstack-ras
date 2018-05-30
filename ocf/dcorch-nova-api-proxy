@@ -1,17 +1,11 @@
 #!/bin/sh
+# OpenStack DC Orchestrator Nova Api Proxy Service (dcorch-nova-api-proxy)
 #
+# Description:
+#   Manages an OpenStack DC Orchestrator Nova Api Proxy Service (dcorch-nova-api-proxy)
+#   process as an HA resource
 #
-# OpenStack Nova VNC Console (nova-novncproxy)
-#
-# Description:  Manages an OpenStack Nova VNC Console (nova-novncproxy) process as an HA resource
-#
-# Authors:      Sébastien Han
-# Mainly inspired by the Glance API resource agent written by Martin Gerhard Loschwitz from Hastexo: http://goo.gl/whLpr
-#
-# Support:      openstack@lists.launchpad.net
-# License:      Apache Software License (ASL) 2.0
-#
-# Copyright (c) 2014 Wind River Systems, Inc.
+# Copyright (c) 2017 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -23,8 +17,6 @@
 #   OCF_RESKEY_config
 #   OCF_RESKEY_user
 #   OCF_RESKEY_pid
-#   OCF_RESKEY_console_port
-#   OCF_RESKEY_web
 #   OCF_RESKEY_additional_parameters
 #######################################################################
 # Initialization:
@@ -36,19 +28,15 @@
 
 # Fill in some defaults if no values are specified
 
-OCF_RESKEY_binary_default="nova-novncproxy"
-OCF_RESKEY_config_default="/etc/nova/nova.conf"
-OCF_RESKEY_user_default="nova"
+OCF_RESKEY_binary_default="/usr/bin/dcorch-api-proxy"
+OCF_RESKEY_config_default="/etc/dcorch/dcorch.conf"
+OCF_RESKEY_user_default="root"
 OCF_RESKEY_pid_default="$HA_RSCTMP/$OCF_RESOURCE_INSTANCE.pid"
-OCF_RESKEY_console_port_default="6080"
-OCF_RESKEY_web_default="/usr/share/novnc/"
 
 : ${OCF_RESKEY_binary=${OCF_RESKEY_binary_default}}
 : ${OCF_RESKEY_config=${OCF_RESKEY_config_default}}
 : ${OCF_RESKEY_user=${OCF_RESKEY_user_default}}
 : ${OCF_RESKEY_pid=${OCF_RESKEY_pid_default}}
-: ${OCF_RESKEY_console_port=${OCF_RESKEY_console_port_default}}
-: ${OCF_RESKEY_web=${OCF_RESKEY_web_default}}
 
 #######################################################################
 
@@ -56,14 +44,14 @@ usage() {
     cat <<UEND
         usage: $0 (start|stop|validate-all|meta-data|status|monitor)
 
-        $0 manages an OpenStack Nova VNC Console (nova-novncproxy) process as an HA resource 
+        $0 manages an OpenStack DC Orchestrator Nova Api Proxy service (dcorch-nova-api-proxy) process as an HA resource
 
-        The 'start' operation starts the console service.
-        The 'stop' operation stops the console service.
+        The 'start' operation starts the dcorch-nova-api-proxy service.
+        The 'stop' operation stops the dcorch-nova-api-proxy service.
         The 'validate-all' operation reports whether the parameters are valid
         The 'meta-data' operation reports this RA's meta-data information
-        The 'status' operation reports whether the console service is running
-        The 'monitor' operation reports whether the console service seems to be working
+        The 'status' operation reports whether the dcorch-nova-api-proxy service is running
+        The 'monitor' operation reports whether the dcorch-nova-api-proxy service seems to be working
 
 UEND
 }
@@ -72,80 +60,62 @@ meta_data() {
     cat <<END
 <?xml version="1.0"?>
 <!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
-<resource-agent name="nova-novncproxy">
+<resource-agent name="dcorch-nova-api-proxy">
 <version>1.0</version>
 
 <longdesc lang="en">
-Resource agent for the OpenStack Nova VNC Console Service (nova-novncproxy)
-May manage a nova-novncproxy instance or a clone set that 
-creates a distributed nova-novncproxy cluster.
+Resource agent for the DC Orchestrator Nova API proxy service (dcorch-nova-api-proxy)
 </longdesc>
-<shortdesc lang="en">Manages the OpenStack Nova VNC Console (nova-novncproxy)</shortdesc>
+<shortdesc lang="en">Manages the OpenStack DC Orchestrator Nova Api Proxy Service (dcorch-nova-api-proxy)</shortdesc>
 <parameters>
 
 <parameter name="binary" unique="0" required="0">
 <longdesc lang="en">
-Location of the OpenStack Nova VNC Console server binary (nova-novncproxy)
+Location of the DC Orchestrator Nova Api proxy server binary (dcorch-nova-api-proxy)
 </longdesc>
-<shortdesc lang="en">OpenStack Nova VNC Console server binary (nova-novncproxy)</shortdesc>
+<shortdesc lang="en">DC Orchestrator Nova Api proxy server binary (dcorch-nova-api-proxy)</shortdesc>
 <content type="string" default="${OCF_RESKEY_binary_default}" />
 </parameter>
 
 <parameter name="config" unique="0" required="0">
 <longdesc lang="en">
-Location of the OpenStack Nova VNC Console (nova-novncproxy) configuration file
+Location of the DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) configuration file
 </longdesc>
-<shortdesc lang="en">OpenStack Nova VNC Console (nova-novncproxy registry) config file</shortdesc>
+<shortdesc lang="en">DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy registry) config file</shortdesc>
 <content type="string" default="${OCF_RESKEY_config_default}" />
 </parameter>
 
 <parameter name="user" unique="0" required="0">
 <longdesc lang="en">
-User running OpenStack Nova VNC Console (nova-novncproxy)
+User running DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy)
 </longdesc>
-<shortdesc lang="en">OpenStack Nova VNC Console (nova-novncproxy) user</shortdesc>
+<shortdesc lang="en">DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) user</shortdesc>
 <content type="string" default="${OCF_RESKEY_user_default}" />
-</parameter>
-
-<parameter name="console_port" unique="0" required="0">
-<longdesc lang="en">
-VNC console type running: nova-novnc
-</longdesc>
-<shortdesc lang="en">OpenStack Nova VNC Console (nova-novncproxy) console type</shortdesc>
-<content type="integer" default="${OCF_RESKEY_console_port_default}" />
-</parameter>
-
-<parameter name="web" unique="0" required="0">
-<longdesc lang="en">
-VNC console web URL
-</longdesc>
-<shortdesc lang="en">OpenStack Nova VNC Console (nova-novncproxy) web URL</shortdesc>
-<content type="string" default="${OCF_RESKEY_web_default}" />
 </parameter>
 
 <parameter name="pid" unique="0" required="0">
 <longdesc lang="en">
-The pid file to use for this OpenStack Nova VNC Console (nova-novncproxy) instance
+The pid file to use for this DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) instance
 </longdesc>
-<shortdesc lang="en">OpenStack Nova VNC Console (nova-novncproxy) pid file</shortdesc>
+<shortdesc lang="en">DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) pid file</shortdesc>
 <content type="string" default="${OCF_RESKEY_pid_default}" />
 </parameter>
 
 <parameter name="additional_parameters" unique="0" required="0">
 <longdesc lang="en">
-Additional parameters to pass on to the OpenStack Nova VNC Console (nova-novncproxy)
+Additional parameters to pass on to the OpenStack NovaAPI (dcorch-nova-api-proxy)
 </longdesc>
-<shortdesc lang="en">Additional parameters for nova-novncproxy</shortdesc>
+<shortdesc lang="en">Additional parameters for dcorch-nova-api-proxy</shortdesc>
 <content type="string" />
 </parameter>
 
 </parameters>
 
 <actions>
-<action name="start" timeout="10" />
-<action name="stop" timeout="15" />
-<action name="status" timeout="10" />
-<action name="monitor" timeout="5" interval="10" />
+<action name="start" timeout="20" />
+<action name="stop" timeout="20" />
+<action name="status" timeout="20" />
+<action name="monitor" timeout="10" interval="5" />
 <action name="validate-all" timeout="5" />
 <action name="meta-data" timeout="5" />
 </actions>
@@ -156,11 +126,15 @@ END
 #######################################################################
 # Functions invoked by resource manager actions
 
-nova_vnc_console_validate() {
+dcorch_nova_api_proxy_validate() {
     local rc
 
     check_binary $OCF_RESKEY_binary
-    check_binary netstat
+    check_binary curl
+    check_binary tr
+    check_binary grep
+    check_binary cut
+    check_binary head
 
     # A config file on shared storage that is not available
     # during probes is OK.
@@ -182,12 +156,12 @@ nova_vnc_console_validate() {
     true
 }
 
-nova_vnc_console_status() {
+dcorch_nova_api_proxy_status() {
     local pid
     local rc
 
     if [ ! -f $OCF_RESKEY_pid ]; then
-        ocf_log info "OpenStack Nova VNC Console (nova-novncproxy) is not running"
+        ocf_log info "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) is not running"
         return $OCF_NOT_RUNNING
     else
         pid=`cat $OCF_RESKEY_pid`
@@ -198,17 +172,16 @@ nova_vnc_console_status() {
     if [ $rc -eq 0 ]; then
         return $OCF_SUCCESS
     else
-        ocf_log info "Old PID file found, but OpenStack Nova VNC Console (nova-novncproxy) is not running"
+        ocf_log info "Old PID file found, but DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) is not running"
         rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
 
-nova_vnc_console_monitor() {
+dcorch_nova_api_proxy_monitor() {
     local rc
-    local vnc_list_check
 
-    nova_vnc_console_status
+    dcorch_nova_api_proxy_status
     rc=$?
 
     # If status returned anything but success, return that immediately
@@ -216,78 +189,72 @@ nova_vnc_console_monitor() {
         return $rc
     fi
 
-    # Check whether we are supposed to monitor by logging into nova-novncproxy
-    # and do it if that's the case.
-    # Adding -n to netstat so that dns delays will not impact this.
-	vnc_list_check=`netstat -an | grep -s "$OCF_RESKEY_console_port" | grep -qs "LISTEN"`
-    rc=$?
-    if [ $rc -ne 0 ]; then
-        ocf_log err "Nova VNC Console doesn't seem to listen on his default port: $rc"
-        return $OCF_NOT_RUNNING
-    fi
+    # Further verify the service availibility.
 
-    ocf_log debug "OpenStack Nova VNC Console (nova-novncproxy) monitor succeeded"
+    ocf_log debug "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) monitor succeeded"
     return $OCF_SUCCESS
 }
 
-nova_vnc_console_start() {
+dcorch_nova_api_proxy_start() {
     local rc
 
-    nova_vnc_console_status
+    dcorch_nova_api_proxy_status
     rc=$?
     if [ $rc -eq $OCF_SUCCESS ]; then
-        ocf_log info "OpenStack Nova VNC Console (nova-novncproxy) already running"
+        ocf_log info "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) already running"
         return $OCF_SUCCESS
     fi
 
     # Change the working dir to /, to be sure it's accesible
     cd /
 
-    # run the actual nova-novncproxy daemon. Don't use ocf_run as we're sending the tool's output
+    # run the actual dcorch-nova-api-proxy daemon. Don't use ocf_run as we're sending the tool's output
     # straight to /dev/null anyway and using ocf_run would break stdout-redirection here.
-    su ${OCF_RESKEY_user} -s /bin/sh -c "${OCF_RESKEY_binary} --config-file=$OCF_RESKEY_config --web /usr/share/novnc/ \
+    su ${OCF_RESKEY_user} -s /bin/sh -c "${OCF_RESKEY_binary} --config-file=$OCF_RESKEY_config --type compute \
        $OCF_RESKEY_additional_parameters"' >> /dev/null 2>&1 & echo $!' > $OCF_RESKEY_pid
 
     # Spin waiting for the server to come up.
     # Let the CRM/LRM time us out if required
     while true; do
-    nova_vnc_console_monitor
+    dcorch_nova_api_proxy_monitor
     rc=$?
     [ $rc -eq $OCF_SUCCESS ] && break
     if [ $rc -ne $OCF_NOT_RUNNING ]; then
-        ocf_log err "OpenStack Nova VNC Console (nova-novncproxy) start failed"
+        ocf_log err "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) start failed"
         exit $OCF_ERR_GENERIC
     fi
     sleep 1
     done
 
-    ocf_log info "OpenStack Nova VNC Console (nova-novncproxy) started"
+    ocf_log info "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) started"
     return $OCF_SUCCESS
 }
 
-nova_vnc_console_confirm_stop() {
+dcorch_nova_api_proxy_confirm_stop() {
     local my_bin
     local my_processes
 
     my_binary=`which ${OCF_RESKEY_binary}`
-    my_processes=`pgrep -l -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"`
+    my_type="compute"
+    my_processes=`pgrep -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary} .*--type ${my_type}([^\w-]|$)"` 
 
     if [ -n "${my_processes}" ]
     then
         ocf_log info "About to SIGKILL the following: ${my_processes}"
-        pkill -KILL -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"
+        # replace the new line with with a space in the process list
+        kill -9 `echo "${my_processes}" | tr '\n' ' '`
     fi
 }
 
-nova_vnc_console_stop() {
+dcorch_nova_api_proxy_stop() {
     local rc
     local pid
 
-    nova_vnc_console_status
+    dcorch_nova_api_proxy_status
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
-        ocf_log info "OpenStack Nova VNC Console (nova-novncproxy) already stopped"
-        nova_vnc_console_confirm_stop
+        ocf_log info "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) already stopped"
+        dcorch_nova_api_proxy_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -296,8 +263,8 @@ nova_vnc_console_stop() {
     ocf_run kill -s TERM $pid
     rc=$?
     if [ $rc -ne 0 ]; then
-        ocf_log err "OpenStack Nova VNC Console (nova-novncproxy) couldn't be stopped"
-        nova_vnc_console_confirm_stop
+        ocf_log err "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) couldn't be stopped"
+        dcorch_nova_api_proxy_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -308,27 +275,27 @@ nova_vnc_console_stop() {
     fi
     count=0
     while [ $count -lt $shutdown_timeout ]; do
-        nova_vnc_console_status
+        dcorch_nova_api_proxy_status
         rc=$?
         if [ $rc -eq $OCF_NOT_RUNNING ]; then
             break
         fi
         count=`expr $count + 1`
         sleep 1
-        ocf_log debug "OpenStack Nova VNC Console (nova-novncproxy) still hasn't stopped yet. Waiting ..."
+        ocf_log debug "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) still hasn't stopped yet. Waiting ..."
     done
 
-    nova_vnc_console_status
+    dcorch_nova_api_proxy_status
     rc=$?
     if [ $rc -ne $OCF_NOT_RUNNING ]; then
         # SIGTERM didn't help either, try SIGKILL
-        ocf_log info "OpenStack Nova VNC Console (nova-novncproxy) failed to stop after ${shutdown_timeout}s \
+        ocf_log info "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) failed to stop after ${shutdown_timeout}s \
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
-    nova_vnc_console_confirm_stop
+    dcorch_nova_api_proxy_confirm_stop
 
-    ocf_log info "OpenStack Nova VNC Console (nova-novncproxy) stopped"
+    ocf_log info "DC Orchestrator Nova Api proxy (dcorch-nova-api-proxy) stopped"
 
     rm -f $OCF_RESKEY_pid
 
@@ -345,14 +312,14 @@ case "$1" in
 esac
 
 # Anything except meta-data and help must pass validation
-nova_vnc_console_validate || exit $?
+dcorch_nova_api_proxy_validate || exit $?
 
 # What kind of method was invoked?
 case "$1" in
-  start)        nova_vnc_console_start;;
-  stop)         nova_vnc_console_stop;;
-  status)       nova_vnc_console_status;;
-  monitor)      nova_vnc_console_monitor;;
+  start)        dcorch_nova_api_proxy_start;;
+  stop)         dcorch_nova_api_proxy_stop;;
+  status)       dcorch_nova_api_proxy_status;;
+  monitor)      dcorch_nova_api_proxy_monitor;;
   validate-all) ;;
   *)            usage
                 exit $OCF_ERR_UNIMPLEMENTED;;

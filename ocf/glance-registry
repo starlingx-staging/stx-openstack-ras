@@ -12,6 +12,11 @@
 #
 # (c) 2012      hastexo Professional Services GmbH
 #
+# Copyright (c) 2014 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+#
 # See usage() function below for more details ...
 #
 # OCF instance parameters:
@@ -227,14 +232,13 @@ glance_registry_status() {
         return $OCF_SUCCESS
     else
         ocf_log info "Old PID file found, but OpenStack ImageService (glance-registry) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
 
 glance_registry_monitor() {
     local rc
-    local token
-    local http_code
 
     glance_registry_status
     rc=$?
@@ -246,18 +250,13 @@ glance_registry_monitor() {
 
     # Check whether we are supposed to monitor by logging into glance-registry
     # and do it if that's the case.
-    if [ -n "$OCF_RESKEY_os_username" ] && [ -n "$OCF_RESKEY_os_password" ] \
-    && [ -n "$OCF_RESKEY_os_tenant_name" ] && [ -n "$OCF_RESKEY_keystone_get_token_url" ]; then
-        token=`curl -s -d  "{\"auth\":{\"passwordCredentials\": {\"username\": \"$OCF_RESKEY_os_username\", \
-          \"password\": \"$OCF_RESKEY_os_password\"}, \"tenantName\": \"$OCF_RESKEY_os_tenant_name\"}}" \
-          -H "Content-type: application/json" $OCF_RESKEY_keystone_get_token_url | tr ',' '\n' | grep '"id":' \
-          | cut -d'"' -f4 | head --lines 1` 
-        http_code=`curl --write-out %{http_code} --output /dev/null -sH "X-Auth-Token: $token" $OCF_RESKEY_url`
-        rc=$?
-        if [ $rc -ne 0 ] || [ $http_code -ne 200 ]; then
-            ocf_log err "Failed to connect to the OpenStack ImageService (glance-registry): $rc and $http_code"
-            return $OCF_NOT_RUNNING
-        fi
+    if [ -n "$OCF_RESKEY_os_username"] && [ -n "$OCF_RESKEY_os_tenant_name" ] && [ -n "$OCF_RESKEY_keystone_get_token_url" ]; then
+       ./validation $OCF_RESKEY_keystone_get_token_url $OCF_RESKEY_os_username $OCF_RESKEY_os_tenant_name
+       rc=$?
+       if [ $rc -ne 0 ]; then
+           ocf_log err "Failed to connect to the OpenStack ImageService (glance-registry): $rc"
+           return $OCF_NOT_RUNNING
+       fi
     fi
 
     ocf_log debug "OpenStack ImageService (glance-registry) monitor succeeded"
@@ -296,6 +295,20 @@ glance_registry_start() {
     return $OCF_SUCCESS
 }
 
+glance_registry_confirm_stop() {
+    local my_bin
+    local my_processes
+
+    my_binary=`which ${OCF_RESKEY_binary}`
+    my_processes=`pgrep -l -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"`
+
+    if [ -n "${my_processes}" ]
+    then
+        ocf_log info "About to SIGKILL the following: ${my_processes}"
+        pkill -KILL -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"
+    fi
+}
+
 glance_registry_stop() {
     local rc
     local pid
@@ -304,6 +317,7 @@ glance_registry_stop() {
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
         ocf_log info "OpenStack ImageService (glance-registry) already stopped"
+        glance_registry_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -313,6 +327,7 @@ glance_registry_stop() {
     rc=$?
     if [ $rc -ne 0 ]; then
         ocf_log err "OpenStack ImageService (glance-registry) couldn't be stopped"
+        glance_registry_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -341,6 +356,7 @@ glance_registry_stop() {
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
+    glance_registry_confirm_stop
 
     ocf_log info "OpenStack ImageService (glance-registry) stopped"
 

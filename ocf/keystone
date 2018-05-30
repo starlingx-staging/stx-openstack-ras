@@ -12,6 +12,11 @@
 #
 # (c) 2012      hastexo Professional Services GmbH
 #
+# Copyright (c) 2017 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+#
 # See usage() function below for more details ...
 #
 # OCF instance parameters:
@@ -37,9 +42,9 @@
 
 OCF_RESKEY_binary_default="keystone-all"
 OCF_RESKEY_config_default="/etc/keystone/keystone.conf"
-OCF_RESKEY_pid_default="$HA_RSCTMP/$OCF_RESOURCE_INSTANCE.pid"
+OCF_RESKEY_pid_default="/var/run/openstack-keystone.pid"
 OCF_RESKEY_user_default="keystone"
-OCF_RESKEY_client_binary_default="keystone"
+OCF_RESKEY_client_binary_default="openstack"
 
 : ${OCF_RESKEY_binary=${OCF_RESKEY_binary_default}}
 : ${OCF_RESKEY_config=${OCF_RESKEY_config_default}}
@@ -206,9 +211,10 @@ keystone_validate() {
 keystone_status() {
     local pid
     local rc
-
+	 ocf_log info PID file is $OCF_RESKEY_pid 
     if [ ! -f $OCF_RESKEY_pid ]; then
-        ocf_log info "OpenStack Identity (Keystone) is not running"
+	ocf_log info "pid file not found .."
+    ocf_log info "OpenStack Identity (Keystone) is not running .."
         return $OCF_NOT_RUNNING
     else
     pid=`cat $OCF_RESKEY_pid`
@@ -220,6 +226,7 @@ keystone_status() {
         return $OCF_SUCCESS
     else
         ocf_log info "Old PID file found, but OpenStack Identity (Keystone) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
@@ -237,15 +244,13 @@ keystone_monitor() {
 
     # Check whether we are supposed to monitor by logging into Keystone
     # and do it if that's the case.
-    if [ -n "$OCF_RESKEY_client_binary" ] && [ -n "$OCF_RESKEY_os_username" ] \
-    && [ -n "$OCF_RESKEY_os_password" ] && [ -n "$OCF_RESKEY_os_tenant_name" ] \
+    if [ -n "$OCF_RESKEY_client_binary" ] && [ -n "$OCF_RESKEY_os_password" ] && [ -n "$OCF_RESKEY_os_tenant_name" ] \
     && [ -n "$OCF_RESKEY_os_auth_url" ]; then
         ocf_run -q $OCF_RESKEY_client_binary \
         --os-username "$OCF_RESKEY_os_username" \
-        --os-password "$OCF_RESKEY_os_password" \
         --os-tenant-name "$OCF_RESKEY_os_tenant_name" \
         --os-auth-url "$OCF_RESKEY_os_auth_url" \
-        user-list > /dev/null 2>&1
+        user list > /dev/null 2>&1
         rc=$?
         if [ $rc -ne 0 ]; then
             ocf_log err "Failed to connect to the OpenStack Identity (Keystone): $rc"
@@ -265,12 +270,23 @@ keystone_start() {
     if [ $rc -eq $OCF_SUCCESS ]; then
         ocf_log info "OpenStack Identity (Keystone) already running"
         return $OCF_SUCCESS
-    fi
+    fi 
+
+    ocf_log info " pid file -> during start $OCF_RESKEY_pid"
+    ocf_log info "${OCF_RESKEY_user} -s /bin/sh -c ${OCF_RESKEY_binary} \
+      $OCF_RESKEY_additional_parameters"
+
+    # Before starting we need to ensure that orphan workers do not present
+    
+        keystone_confirm_stop
+    #
+ 
 
     # run the actual keystone daemon. Don't use ocf_run as we're sending the tool's output
     # straight to /dev/null anyway and using ocf_run would break stdout-redirection here.
-    su ${OCF_RESKEY_user} -s /bin/sh -c "${OCF_RESKEY_binary} --config-file $OCF_RESKEY_config \
-      $OCF_RESKEY_additional_parameters"' >> /dev/null 2>&1 & echo $!' > $OCF_RESKEY_pid
+
+    su ${OCF_RESKEY_user} -s /bin/sh -c "${OCF_RESKEY_binary}    $OCF_RESKEY_additional_parameters"
+ 
 
     # Spin waiting for the server to come up.
     # Let the CRM/LRM time us out if required
@@ -289,23 +305,60 @@ keystone_start() {
     return $OCF_SUCCESS
 }
 
+keystone_confirm_stop() {
+    local my_bin
+    local my_processes
+    
+    # Enhanced way of finding keytone processes - Process names with  *gunicorn*keysone*
+    my_processes=`pgrep -l -f "^(.*gunicorn.*)(.*keystone.*) ([^\w-]|$)"` 
+
+    if [ -n "${my_processes}" ]
+    then
+        ocf_log info "About to SIGKILL the following: ${my_processes}"
+        pkill -KILL -f "^(.*gunicorn.*)(.*keystone.*) ([^\w-]|$)" ; 
+    fi
+
+}
+
 keystone_stop() {
+
     local rc
     local pid
 
+    # first stop the child process
+    PIDFILE_public="/var/run/resource-agents/openstack-keystone-child.pid"
+    start-stop-daemon --stop --quiet --pidfile $PIDFILE_public
+    RETVAL_public=$?
+    if [ $RETVAL_public -eq 0 ]; then
+        echo "Stopped $DESC_public."
+    else
+        echo "Stopping failed - $PIDFILE_public"
+    fi
+    rm -f $PIDFILE_public
+
+
+
     keystone_status
     rc=$?
+	echo " ret conde 1$rc"
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
         ocf_log info "OpenStack Identity (Keystone) already stopped"
+        keystone_confirm_stop
         return $OCF_SUCCESS
     fi
+
+
+
 
     # Try SIGTERM
     pid=`cat $OCF_RESKEY_pid`
     ocf_run kill -s TERM $pid
+        echo " ret conde 2$rc"
+
     rc=$?
     if [ $rc -ne 0 ]; then
         ocf_log err "OpenStack Identity (Keystone) couldn't be stopped"
+        keystone_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -334,6 +387,7 @@ keystone_stop() {
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
+    keystone_confirm_stop
 
     ocf_log info "OpenStack Identity (Keystone) stopped"
 

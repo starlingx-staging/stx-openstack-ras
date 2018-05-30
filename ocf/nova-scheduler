@@ -11,6 +11,10 @@
 # Support:      openstack@lists.launchpad.net
 # License:      Apache Software License (ASL) 2.0
 #
+# Copyright (c) 2014 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
 #
 # See usage() function below for more details ...
 #
@@ -188,7 +192,6 @@ nova_scheduler_validate() {
 
     check_binary $OCF_RESKEY_binary
     check_binary netstat
-    nova_scheduler_check_port $OCF_RESKEY_database_server_port
     nova_scheduler_check_port $OCF_RESKEY_amqp_server_port
     
     # A config file on shared storage that is not available
@@ -225,9 +228,11 @@ nova_scheduler_status() {
     ocf_run -warn kill -s 0 $pid
     rc=$?
     if [ $rc -eq 0 ]; then
+        ocf_log info "OpenStack Nova Scheduler (nova-scheduler, pid:$pid ) is running;"
         return $OCF_SUCCESS
     else
-        ocf_log info "Old PID file found, but OpenStack Nova Scheduler (nova-scheduler) is not running"
+        ocf_log info "Old PID file (pid:$pid) found, but OpenStack Nova Scheduler (nova-scheduler) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
@@ -235,9 +240,7 @@ nova_scheduler_status() {
 nova_scheduler_monitor() {
     local rc
     local pid
-    local rc_db
     local rc_amqp
-    local scheduler_db_check
     local scheduler_amqp_check
 
     nova_scheduler_status
@@ -250,25 +253,22 @@ nova_scheduler_monitor() {
 
     # Check the connections according to the PID.
     # We are sure to hit the scheduler process and not other nova process with the same connection behavior (for example nova-cert)
-    if ocf_is_true "$OCF_RESKEY_zeromq"; then
-	    pid=`cat $OCF_RESKEY_pid`
-	    scheduler_db_check=`netstat -punt | grep -s "$OCF_RESKEY_database_server_port" | grep -s "$pid" | grep -qs "ESTABLISHED"`
-	    rc_db=$?
-	    if [ $rc_db -ne 0 ]; then
-	        ocf_log err "Nova Scheduler is not connected to the database server: $rc_db"
-	        return $OCF_NOT_RUNNING
-	    fi
-	else
+    if ! ocf_is_true "$OCF_RESKEY_zeromq"; then
         pid=`cat $OCF_RESKEY_pid`
-        scheduler_db_check=`netstat -punt | grep -s "$OCF_RESKEY_database_server_port" | grep -s "$pid" | grep -qs "ESTABLISHED"`
-        rc_db=$?
         scheduler_amqp_check=`netstat -punt | grep -s "$OCF_RESKEY_amqp_server_port" | grep -s "$pid" | grep -qs "ESTABLISHED"`
         rc_amqp=$?
-	    if [ $rc_amqp -ne 0 ] || [ $rc_db -ne 0 ]; then
-	        ocf_log err "Nova Scheduler is not connected to the AMQP server and/or the database server: AMQP connection test returned $rc_amqp and database connection test returned $rc_db"
-	        return $OCF_NOT_RUNNING
-	    fi
-	fi
+	if [ $rc_amqp -ne 0 ] ; then
+	        ocf_log err "Nova Scheduler (nova-scheduler, pid:$pid) is not connected to the AMQP server: AMQP connection (port:$OCF_RESKEY_amqp_server_port) test returned $rc_amqp"
+            # show fds and network connections for nova-scheduler process
+            output=`ls -l /proc/$pid/fd 2>&1`
+            output=$'\n'$output
+            ocf_log info "$output"
+            output=`netstat -apn|grep -w $pid 2>&1`
+            output=$'\n'$output
+            ocf_log info "$output"
+            return $OCF_NOT_RUNNING
+        fi
+    fi
 
     ocf_log debug "OpenStack Nova Scheduler (nova-scheduler) monitor succeeded"
     return $OCF_SUCCESS
@@ -283,6 +283,12 @@ nova_scheduler_start() {
         ocf_log info "OpenStack Nova Scheduler (nova-scheduler) already running"
         return $OCF_SUCCESS
     fi
+
+    # Change the working dir to /, to be sure it's accesible
+    cd /
+
+    # Run the pre-start hooks.  This can be used to trigger a nova database sync, for example.
+    /usr/bin/nova-controller-runhooks
 
     # run the actual nova-scheduler daemon. Don't use ocf_run as we're sending the tool's output
     # straight to /dev/null anyway and using ocf_run would break stdout-redirection here.
@@ -305,6 +311,20 @@ nova_scheduler_start() {
     return $OCF_SUCCESS
 }
 
+nova_scheduler_confirm_stop() {
+    local my_bin
+    local my_processes
+
+    my_binary=`which ${OCF_RESKEY_binary}`
+    my_processes=`pgrep -l -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"`
+
+    if [ -n "${my_processes}" ]
+    then
+        ocf_log info "About to SIGKILL the following: ${my_processes}"
+        pkill -KILL -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"
+    fi
+}
+
 nova_scheduler_stop() {
     local rc
     local pid
@@ -313,6 +333,7 @@ nova_scheduler_stop() {
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
         ocf_log info "OpenStack Nova Scheduler (nova-scheduler) already stopped"
+        nova_scheduler_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -322,6 +343,7 @@ nova_scheduler_stop() {
     rc=$?
     if [ $rc -ne 0 ]; then
         ocf_log err "OpenStack Nova Scheduler (nova-scheduler) couldn't be stopped"
+        nova_scheduler_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -350,6 +372,7 @@ nova_scheduler_stop() {
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
+    nova_scheduler_confirm_stop
 
     ocf_log info "OpenStack Nova Scheduler (nova-scheduler) stopped"
 

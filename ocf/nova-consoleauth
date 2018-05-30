@@ -11,6 +11,10 @@
 # Support:      openstack@lists.launchpad.net
 # License:      Apache Software License (ASL) 2.0
 #
+# Copyright (c) 2014 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
 #
 # See usage() function below for more details ...
 #
@@ -228,6 +232,7 @@ nova_consoleauth_status() {
         return $OCF_SUCCESS
     else
         ocf_log info "Old PID file found, but OpenStack Nova Console Auth (nova-consoleauth) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
@@ -285,6 +290,9 @@ nova_consoleauth_start() {
         return $OCF_SUCCESS
     fi
 
+    # Change the working dir to /, to be sure it's accesible
+    cd /
+
     # run the actual nova-consoleauth daemon. Don't use ocf_run as we're sending the tool's output
     # straight to /dev/null anyway and using ocf_run would break stdout-redirection here.
     su ${OCF_RESKEY_user} -s /bin/sh -c "${OCF_RESKEY_binary} --config-file=$OCF_RESKEY_config \
@@ -307,6 +315,20 @@ nova_consoleauth_start() {
     return $OCF_SUCCESS
 }
 
+nova_consoleauth_confirm_stop() {
+    local my_bin
+    local my_processes
+
+    my_binary=`which ${OCF_RESKEY_binary}`
+    my_processes=`pgrep -l -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"`
+
+    if [ -n "${my_processes}" ]
+    then
+        ocf_log info "About to SIGKILL the following: ${my_processes}"
+        pkill -KILL -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"
+    fi
+}
+
 nova_consoleauth_stop() {
     local rc
     local pid
@@ -315,6 +337,7 @@ nova_consoleauth_stop() {
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
         ocf_log info "OpenStack Nova ConsoleAuth (nova-consoleauth) already stopped"
+        nova_consoleauth_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -324,6 +347,7 @@ nova_consoleauth_stop() {
     rc=$?
     if [ $rc -ne 0 ]; then
         ocf_log err "OpenStack Nova ConsoleAuth (nova-consoleauth) couldn't be stopped"
+        nova_consoleauth_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -352,6 +376,7 @@ nova_consoleauth_stop() {
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
+    nova_consoleauth_confirm_stop
 
     ocf_log info "OpenStack Nova ConsoleAuth (nova-consoleauth) stopped"
 

@@ -1,15 +1,19 @@
 #!/bin/sh
 #
 #
-# OpenStack Nova Cert (nova-cert)
+# OpenStack Conductor Service (nova-conductor)
 #
-# Description:  Manages an OpenStack Nova Cert (nova-cert) process as an HA resource
+# Description:  Manages an OpenStack Conductor Service (nova-conductor) process as an HA resource
 #
 # Authors:      Sébastien Han
 # Mainly inspired by the Glance API resource agent written by Martin Gerhard Loschwitz from Hastexo: http://goo.gl/whLpr
 #
 # Support:      openstack@lists.launchpad.net
 # License:      Apache Software License (ASL) 2.0
+#
+# Copyright (c) 2014 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 #
 # See usage() function below for more details ...
@@ -19,6 +23,7 @@
 #   OCF_RESKEY_config
 #   OCF_RESKEY_user
 #   OCF_RESKEY_pid
+#   OCF_RESKEY_monitor_binary
 #   OCF_RESKEY_database_server_port
 #   OCF_RESKEY_amqp_server_port
 #   OCF_RESKEY_zeromq
@@ -33,7 +38,7 @@
 
 # Fill in some defaults if no values are specified
 
-OCF_RESKEY_binary_default="nova-cert"
+OCF_RESKEY_binary_default="nova-conductor"
 OCF_RESKEY_config_default="/etc/nova/nova.conf"
 OCF_RESKEY_user_default="nova"
 OCF_RESKEY_pid_default="$HA_RSCTMP/$OCF_RESOURCE_INSTANCE.pid"
@@ -55,14 +60,14 @@ usage() {
     cat <<UEND
         usage: $0 (start|stop|validate-all|meta-data|status|monitor)
 
-        $0 manages an OpenStack Nova Cert (nova-cert) process as an HA resource 
+        $0 manages an OpenStack ConductorService (nova-conductor) process as an HA resource 
 
-        The 'start' operation starts the nova-cert service.
-        The 'stop' operation stops the nova-cert service.
+        The 'start' operation starts the conductor service.
+        The 'stop' operation stops the conductor service.
         The 'validate-all' operation reports whether the parameters are valid
         The 'meta-data' operation reports this RA's meta-data information
-        The 'status' operation reports whether the nova-cert service is running
-        The 'monitor' operation reports whether the nova-cert service seems to be working
+        The 'status' operation reports whether the conductor service is running
+        The 'monitor' operation reports whether the conductor service seems to be working
 
 UEND
 }
@@ -71,52 +76,52 @@ meta_data() {
     cat <<END
 <?xml version="1.0"?>
 <!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
-<resource-agent name="nova-cert">
+<resource-agent name="nova-conductor">
 <version>1.0</version>
 
 <longdesc lang="en">
-Resource agent for the OpenStack Nova Cert Service (nova-cert)
-May manage a nova-cert instance or a clone set that 
-creates a distributed nova-cert cluster.
+Resource agent for the OpenStack Nova Conductor Service (nova-conductor)
+May manage a nova-conductor instance or a clone set that 
+creates a distributed nova-conductor cluster.
 </longdesc>
-<shortdesc lang="en">Manages the OpenStack Nova Cert (nova-cert)</shortdesc>
+<shortdesc lang="en">Manages the OpenStack Conductor Service (nova-conductor)</shortdesc>
 <parameters>
 
 <parameter name="binary" unique="0" required="0">
 <longdesc lang="en">
-Location of the OpenStack Nova Cert server binary (nova-cert)
+Location of the OpenStack Nova Conductor server binary (nova-conductor)
 </longdesc>
-<shortdesc lang="en">OpenStack Nova Cert server binary (nova-cert)</shortdesc>
+<shortdesc lang="en">OpenStack Nova Conductor server binary (nova-conductor)</shortdesc>
 <content type="string" default="${OCF_RESKEY_binary_default}" />
 </parameter>
 
 <parameter name="config" unique="0" required="0">
 <longdesc lang="en">
-Location of the OpenStack Nova Cert (nova-cert) configuration file
+Location of the OpenStack Conductor Service (nova-conductor) configuration file
 </longdesc>
-<shortdesc lang="en">OpenStack Nova Cert (nova-cert registry) config file</shortdesc>
+<shortdesc lang="en">OpenStack Nova Conductor (nova-conductor) config file</shortdesc>
 <content type="string" default="${OCF_RESKEY_config_default}" />
 </parameter>
 
 <parameter name="user" unique="0" required="0">
 <longdesc lang="en">
-User running OpenStack Nova Cert (nova-cert)
+User running OpenStack Conductor Service (nova-conductor)
 </longdesc>
-<shortdesc lang="en">OpenStack Nova Cert (nova-cert) user</shortdesc>
+<shortdesc lang="en">OpenStack Conductor Service (nova-conductor) user</shortdesc>
 <content type="string" default="${OCF_RESKEY_user_default}" />
 </parameter>
 
 <parameter name="pid" unique="0" required="0">
 <longdesc lang="en">
-The pid file to use for this OpenStack Nova Cert (nova-cert) instance
+The pid file to use for this OpenStack Conductor Service (nova-conductor) instance
 </longdesc>
-<shortdesc lang="en">OpenStack Nova Cert (nova-cert) pid file</shortdesc>
+<shortdesc lang="en">OpenStack Conductor Service (nova-conductor) pid file</shortdesc>
 <content type="string" default="${OCF_RESKEY_pid_default}" />
 </parameter>
 
 <parameter name="database_server_port" unique="0" required="0">                                                                                                                                                              
 <longdesc lang="en">                                                                                                                                                                                                      
-The listening port number of the database server. Mandatory to perform a monitor check                                                                                                                                        
+The listening port number of the database server. Use for monitoring purposes                                                                                                                                        
 </longdesc>                                                                                                                                                                                                               
 <shortdesc lang="en">Database listening port</shortdesc>                                                                                                                                                                      
 <content type="integer" default="${OCF_RESKEY_database_server_port_default}" />                                                                                                                                              
@@ -124,35 +129,35 @@ The listening port number of the database server. Mandatory to perform a monitor
 
 <parameter name="amqp_server_port" unique="0" required="0">                                                                                                                                                              
 <longdesc lang="en">                                                                                                                                                                                                      
-The listening port number of the AMQP server. Mandatory to perform a monitor check                                                                                                                                        
+The listening port number of the AMQP server. Use for monitoring purposes                                                                                                                                        
 </longdesc>                                                                                                                                                                                                               
 <shortdesc lang="en">AMQP listening port</shortdesc>                                                                                                                                                                      
 <content type="integer" default="${OCF_RESKEY_amqp_server_port_default}" />                                                                                                                                              
-</parameter>  
+</parameter>      
 
 <parameter name="zeromq" unique="0" required="0">                                                                                                                                                              
 <longdesc lang="en">                                                                                                                                                                                                      
-If zeromq is used, this will disable the connection test to the AMQP server                                                                                                                                     
+If zeromq is used, this will disable the connection test to the AMQP server. Use for monitoring purposes                                                                                                                               
 </longdesc>                                                                                                                                                                                                               
 <shortdesc lang="en">Zero-MQ usage</shortdesc>                                                                                                                                                                      
 <content type="boolean" default="${OCF_RESKEY_zeromq_default}" />                                                                                                                                              
-</parameter>
+</parameter>  
 
 <parameter name="additional_parameters" unique="0" required="0">
 <longdesc lang="en">
-Additional parameters to pass on to the OpenStack Nova Cert (nova-cert)
+Additional parameters to pass on to the OpenStack Conductor Service (nova-conductor)
 </longdesc>
-<shortdesc lang="en">Additional parameters for nova-cert</shortdesc>
+<shortdesc lang="en">Additional parameters for nova-conductor</shortdesc>
 <content type="string" />
 </parameter>
 
 </parameters>
 
 <actions>
-<action name="start" timeout="10" />
-<action name="stop" timeout="10" />
-<action name="status" timeout="10" />
-<action name="monitor" timeout="5" interval="10" />
+<action name="start" timeout="20" />
+<action name="stop" timeout="20" />
+<action name="status" timeout="20" />
+<action name="monitor" timeout="30" interval="20" />
 <action name="validate-all" timeout="5" />
 <action name="meta-data" timeout="5" />
 </actions>
@@ -163,7 +168,7 @@ END
 #######################################################################
 # Functions invoked by resource manager actions
 
-nova_cert_check_port() {
+nova_conductor_check_port() {
 # This function has been taken from the squid RA and improved a bit
 # The length of the integer must be 4
 # Examples of valid port: "1080", "0080"
@@ -182,14 +187,13 @@ nova_cert_check_port() {
     fi
 }
 
-nova_cert_validate() {
+nova_conductor_validate() {
     local rc
 
     check_binary $OCF_RESKEY_binary
     check_binary netstat
-
-    nova_cert_check_port $OCF_RESKEY_database_server_port
-    nova_cert_check_port $OCF_RESKEY_amqp_server_port
+    nova_conductor_check_port $OCF_RESKEY_database_server_port
+    nova_conductor_check_port $OCF_RESKEY_amqp_server_port
     
     # A config file on shared storage that is not available
     # during probes is OK.
@@ -211,12 +215,12 @@ nova_cert_validate() {
     true
 }
 
-nova_cert_status() {
+nova_conductor_status() {
     local pid
     local rc
 
     if [ ! -f $OCF_RESKEY_pid ]; then
-        ocf_log info "OpenStack Nova Cert (nova-cert) is not running"
+        ocf_log info "OpenStack Nova Conductor (nova-conductor) is not running"
         return $OCF_NOT_RUNNING
     else
         pid=`cat $OCF_RESKEY_pid`
@@ -227,20 +231,33 @@ nova_cert_status() {
     if [ $rc -eq 0 ]; then
         return $OCF_SUCCESS
     else
-        ocf_log info "Old PID file found, but OpenStack Nova Cert (nova-cert) is not running"
+        ocf_log info "Old PID file found, but OpenStack Nova Conductor (nova-conductor) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
 
-nova_cert_monitor() {
+check_port() {
+    local port=$1
+    local pid=$2
+    netstat -punt | grep -s "$port" | grep -s "$pid" | grep -qs "ESTABLISHED"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+nova_conductor_monitor() {
     local rc
     local pid
     local rc_db
     local rc_amqp
-    local cert_db_check
-    local cert_amqp_check
-    
-    nova_cert_status
+    local conductor_db_check
+    local conductor_amqp_check
+
+    nova_conductor_status
     rc=$?
 
     # If status returned anything but success, return that immediately
@@ -249,72 +266,103 @@ nova_cert_monitor() {
     fi
 
     # Check the connections according to the PID.
-    # We are sure to hit the cert process and not other nova process with the same connection behavior (for example nova-scheduler)
-	if ocf_is_true "$OCF_RESKEY_zeromq"; then
-	    pid=`cat $OCF_RESKEY_pid`
-		cert_db_check=`netstat -punt | grep -s "$OCF_RESKEY_database_server_port" | grep -s "$pid" | grep -qs "ESTABLISHED"`
-		rc_db=$?
-		if [ $rc_db -ne 0 ]; then
-		    ocf_log err "Nova Cert is not connected to the database server: $rc_db"
-		    return $OCF_NOT_RUNNING
-		fi
-	else
+    # We are sure to hit the conductor process and not other nova process with the same connection behavior (for example nova-cert)
+    if ocf_is_true "$OCF_RESKEY_zeromq"; then
         pid=`cat $OCF_RESKEY_pid`
-        # check the connections according to the PID
-        cert_db_check=`netstat -punt | grep -s "$OCF_RESKEY_database_server_port" | grep -s "$pid" | grep -sq "ESTABLISHED"`
-        rc_db=$?
-        cert_amqp_check=`netstat -punt | grep -s "$OCF_RESKEY_amqp_server_port" | grep -s "$pid" | grep -sq "ESTABLISHED"`
-        rc_amqp=$?
-	    if [ $rc_amqp -ne 0 ] || [ $rc_db -ne 0 ]; then
-		    ocf_log err "Nova Cert is not connected to the AMQP server and/or the database server: AMQP connection test returned $rc_amqp and database connection test returned $rc_db"
-		    return $OCF_NOT_RUNNING
-		fi
-	fi
-    
-    ocf_log debug "OpenStack Nova Cert (nova-cert) monitor succeeded"
+        rc_db=`check_port $OCF_RESKEY_database_server_port $pid`
+        if [ $rc_db -ne 0 ]; then
+            ocf_log err "Nova Conductor is not connected to the database server: $rc_db"
+            return $OCF_NOT_RUNNING
+        fi
+    else
+        pid=`cat $OCF_RESKEY_pid`
+        rc_db=`check_port $OCF_RESKEY_database_server_port $pid`
+        rc_amqp=`check_port $OCF_RESKEY_amqp_server_port $pid`
+        if [ $rc_amqp -ne 0 ] || [ $rc_db -ne 0 ]; then
+            # may have multiple workers, in which case $pid is the parent and we want to check the children
+            # If there are no children or at least one child is not connected to both DB and AMQP then we fail.
+            KIDPIDS=`pgrep -P $pid -f nova-conductor`
+            if [ ! -z "$KIDPIDS" ]; then
+                for pid in $KIDPIDS
+                do
+                    rc_db=`check_port $OCF_RESKEY_database_server_port $pid`
+                    rc_amqp=`check_port $OCF_RESKEY_amqp_server_port $pid`
+                    if [ $rc_amqp -ne 0 ] || [ $rc_db -ne 0 ]; then
+                        ocf_log err "Nova Conductor pid $pid is not connected to the AMQP server and/or the database server: AMQP connection test returned $rc_amqp and database connection test returned $rc_db"
+                        return $OCF_NOT_RUNNING
+                    fi
+                done
+            else
+                ocf_log err "Nova Conductor pid $pid is not connected to the AMQP server and/or the database server: AMQP connection test returned $rc_amqp and database connection test returned $rc_db"
+                return $OCF_NOT_RUNNING
+            fi
+        fi
+    fi
+
+    ocf_log debug "OpenStack Nova Conductor (nova-conductor) monitor succeeded"
     return $OCF_SUCCESS
 }
 
-nova_cert_start() {
+nova_conductor_start() {
     local rc
 
-    nova_cert_status
+    nova_conductor_status
     rc=$?
     if [ $rc -eq $OCF_SUCCESS ]; then
-        ocf_log info "OpenStack Nova Cert (nova-cert) already running"
+        ocf_log info "OpenStack Nova Conductor (nova-conductor) already running"
         return $OCF_SUCCESS
     fi
 
-    # run the actual nova-cert daemon. Don't use ocf_run as we're sending the tool's output
+    # Change the working dir to /, to be sure it's accesible
+    cd /
+
+    # Run the pre-start hooks.  This can be used to trigger a nova database sync, for example.
+    /usr/bin/nova-controller-runhooks
+
+    # run the actual nova-conductor daemon. Don't use ocf_run as we're sending the tool's output
     # straight to /dev/null anyway and using ocf_run would break stdout-redirection here.
     su ${OCF_RESKEY_user} -s /bin/sh -c "${OCF_RESKEY_binary} --config-file=$OCF_RESKEY_config \
        $OCF_RESKEY_additional_parameters"' >> /dev/null 2>&1 & echo $!' > $OCF_RESKEY_pid
 
     # Spin waiting for the server to come up.
-    # Let the CRM/LRM time us out if required
     while true; do
-    nova_cert_monitor
+    nova_conductor_monitor
     rc=$?
     [ $rc -eq $OCF_SUCCESS ] && break
     if [ $rc -ne $OCF_NOT_RUNNING ]; then
-        ocf_log err "OpenStack Nova Cert (nova-cert) start failed"
+        ocf_log err "OpenStack Nova Conductor (nova-conductor) start failed"
         exit $OCF_ERR_GENERIC
     fi
     sleep 1
     done
 
-    ocf_log info "OpenStack Nova Cert (nova-cert) started"
+    ocf_log info "OpenStack Nova Conductor (nova-conductor) started"
     return $OCF_SUCCESS
 }
 
-nova_cert_stop() {
+nova_conductor_confirm_stop() {
+    local my_bin
+    local my_processes
+
+    my_binary=`which ${OCF_RESKEY_binary}`
+    my_processes=`pgrep -l -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"`
+
+    if [ -n "${my_processes}" ]
+    then
+        ocf_log info "About to SIGKILL the following: ${my_processes}"
+        pkill -KILL -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"
+    fi
+}
+
+nova_conductor_stop() {
     local rc
     local pid
 
-    nova_cert_status
+    nova_conductor_status
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
-        ocf_log info "OpenStack Nova Cert (nova-cert) already stopped"
+        ocf_log info "OpenStack Nova Conductor (nova-conductor) already stopped"
+        nova_conductor_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -323,7 +371,8 @@ nova_cert_stop() {
     ocf_run kill -s TERM $pid
     rc=$?
     if [ $rc -ne 0 ]; then
-        ocf_log err "OpenStack Nova Cert (nova-cert) couldn't be stopped"
+        ocf_log err "OpenStack Nova Conductor (nova-conductor) couldn't be stopped"
+        nova_conductor_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -334,26 +383,27 @@ nova_cert_stop() {
     fi
     count=0
     while [ $count -lt $shutdown_timeout ]; do
-        nova_cert_status
+        nova_conductor_status
         rc=$?
         if [ $rc -eq $OCF_NOT_RUNNING ]; then
             break
         fi
         count=`expr $count + 1`
         sleep 1
-        ocf_log debug "OpenStack Nova Cert (nova-cert) still hasn't stopped yet. Waiting ..."
+        ocf_log debug "OpenStack Nova Conductor (nova-conductor) still hasn't stopped yet. Waiting ..."
     done
 
-    nova_cert_status
+    nova_conductor_status
     rc=$?
     if [ $rc -ne $OCF_NOT_RUNNING ]; then
         # SIGTERM didn't help either, try SIGKILL
-        ocf_log info "OpenStack Nova Cert (nova-cert) failed to stop after ${shutdown_timeout}s \
+        ocf_log info "OpenStack Nova Conductor (nova-conductor) failed to stop after ${shutdown_timeout}s \
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
+    nova_conductor_confirm_stop
 
-    ocf_log info "OpenStack Nova Cert (nova-cert) stopped"
+    ocf_log info "OpenStack Nova Conductor (nova-conductor) stopped"
 
     rm -f $OCF_RESKEY_pid
 
@@ -370,14 +420,14 @@ case "$1" in
 esac
 
 # Anything except meta-data and help must pass validation
-nova_cert_validate || exit $?
+nova_conductor_validate || exit $?
 
 # What kind of method was invoked?
 case "$1" in
-  start)        nova_cert_start;;
-  stop)         nova_cert_stop;;
-  status)       nova_cert_status;;
-  monitor)      nova_cert_monitor;;
+  start)        nova_conductor_start;;
+  stop)         nova_conductor_stop;;
+  status)       nova_conductor_status;;
+  monitor)      nova_conductor_monitor;;
   validate-all) ;;
   *)            usage
                 exit $OCF_ERR_UNIMPLEMENTED;;

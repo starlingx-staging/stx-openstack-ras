@@ -11,6 +11,12 @@
 # Support:      openstack@lists.launchpad.net
 # License:      Apache Software License (ASL) 2.0
 #
+# (c) 2012      hastexo Professional Services GmbH
+#
+# Copyright (c) 2014 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
 #
 # See usage() function below for more details ...
 #
@@ -26,6 +32,7 @@
 
 : ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}
 . ${OCF_FUNCTIONS_DIR}/ocf-shellfuncs
+. /usr/bin/tsconfig
 
 #######################################################################
 
@@ -46,6 +53,20 @@ OCF_RESKEY_multibackend_default="false"
 : ${OCF_RESKEY_multibackend=${OCF_RESKEY_multibackend_default}}
 
 #######################################################################
+
+#######################################################################
+
+#
+# The following file is used to determine if Cinder-Volume should be
+# failed if the AMQP check does not pass.  Cinder-Volume initializes
+# it's backend before connecting to Rabbit.  In Ceph configurations,
+# Cinder-Volume will not connect to Rabbit until the storage blades
+# are provisioned (this can take a long time, no need to restart the
+# process over and over again).
+VOLUME_FAIL_ON_AMQP_CHECK_FILE="$HA_RSCTMP/$OCF_RESOURCE_INSTANCE.fail_on_amqp_check"
+
+#######################################################################
+
 
 usage() {
     cat <<UEND
@@ -194,7 +215,25 @@ cinder_volume_status() {
         return $OCF_SUCCESS
     else
         ocf_log info "Old PID file found, but OpenStack Cinder Volume (cinder-volume) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
+    fi
+}
+
+cinder_volume_get_service_status() {
+    local status_file=${VOLATILE_PATH}/cinder-volume.down-after
+    if [[ -f "${status_file}" ]]; then
+        echo "exists=True"
+        if [[ "$(date -u +'%Y-%m-%d %H:%M:%S.%N')" < "$(cat ${status_file})" ]]; then
+            echo "is_up=True"
+        else
+            echo "is_up=False"
+        fi
+        return 0
+    else
+        echo "exists=False"
+        echo "is_up=False"
+        return 1
     fi
 }
 
@@ -202,6 +241,7 @@ cinder_volume_monitor() {
     local rc
     local pid
     local volume_amqp_check
+    local check_service_status=$1; shift
 
     cinder_volume_status
     rc=$?
@@ -215,14 +255,26 @@ cinder_volume_monitor() {
     pid=`cat $OCF_RESKEY_pid`
 
     if ocf_is_true "$OCF_RESKEY_multibackend"; then
+      pids=`ps -o pid --no-headers --ppid $pid`
+      rc=$?
+      if [ $rc -ne 0 ]; then
+        ocf_log err "No child processes from Cinder Volume (yet...): $rc"
+        return $OCF_NOT_RUNNING
+      fi
+
       # Grab the child's PIDs
       for i in `ps -o pid --no-headers --ppid $pid`
       do
         volume_amqp_check=`netstat -punt | grep -s "$OCF_RESKEY_amqp_server_port" | grep -s "$i" | grep -qs "ESTABLISHED"`
         rc=$?
         if [ $rc -ne 0 ]; then
-          ocf_log err "This child process from Cinder Volume is not connected to the AMQP server: $rc"
-          return $OCF_NOT_RUNNING
+          if [ -e "$VOLUME_FAIL_ON_AMQP_CHECK_FILE" ]; then
+            ocf_log err "This child process from Cinder Volume is not connected to the AMQP server: $rc"
+            return $OCF_NOT_RUNNING
+          else
+            ocf_log info "Cinder Volume initializing, child process is not connected to the AMQP server: $rc"
+            return $OCF_SUCCESS
+          fi
         fi
       done
     else
@@ -232,9 +284,56 @@ cinder_volume_monitor() {
       volume_amqp_check=`netstat -punt | grep -s "$OCF_RESKEY_amqp_server_port" | grep -s "$pid" | grep -qs "ESTABLISHED"`
       rc=$?
       if [ $rc -ne 0 ]; then
+        if [ -e "$VOLUME_FAIL_ON_AMQP_CHECK_FILE" ]; then
           ocf_log err "Cinder Volume is not connected to the AMQP server: $rc"
           return $OCF_NOT_RUNNING
+        else
+          ocf_log info "Cinder Volume initializing, not connected to the AMQP server: $rc"
+          return $OCF_SUCCESS
+        fi
       fi
+    fi
+
+    touch $VOLUME_FAIL_ON_AMQP_CHECK_FILE  >> /dev/null 2>&1
+
+    if [ $check_service_status == "check-service-status" ]; then
+        local retries_left
+        local retry_interval
+
+        retries_left=3
+        retry_interval=3
+        while [ $retries_left -gt 0 ]; do
+            retries_left=`expr $retries_left - 1`
+            status=$(cinder_volume_get_service_status)
+            rc=$?
+            if [ $rc -ne 0 ]; then
+                ocf_log err "Unable to get Cinder Volume status"
+                if [ $retries_left -gt 0 ]; then
+                    sleep $retry_interval
+                    continue
+                else
+                    return $OCF_ERR_GENERIC
+                fi
+            fi
+
+            local exists
+            local is_up
+            eval $status
+
+            if [ "$exists" == "True" ] && [ "$is_up" == "False" ]; then
+                ocf_log err "Cinder Volume service status is down"
+                if [ $retries_left -gt 0 ]; then
+                    sleep $retry_interval
+                    continue
+                else
+                    ocf_log info "Trigger Cinder Volume guru meditation report"
+                    ocf_run kill -s USR2 $pid
+                    return $OCF_ERR_GENERIC
+                fi
+            fi
+
+            break
+        done
     fi
 
     ocf_log debug "OpenStack Cinder Volume (cinder-volume) monitor succeeded"
@@ -243,6 +342,10 @@ cinder_volume_monitor() {
 
 cinder_volume_start() {
     local rc
+
+    if [ -e "$VOLUME_FAIL_ON_AMQP_CHECK_FILE" ] ; then
+        rm $VOLUME_FAIL_ON_AMQP_CHECK_FILE >> /dev/null 2>&1 
+    fi
 
     cinder_volume_status
     rc=$?
@@ -273,14 +376,37 @@ cinder_volume_start() {
     return $OCF_SUCCESS
 }
 
+cinder_volume_confirm_stop() {
+    local my_bin
+    local my_processes
+
+    if [ -e "$VOLUME_FAIL_ON_AMQP_CHECK_FILE" ] ; then
+        rm $VOLUME_FAIL_ON_AMQP_CHECK_FILE >> /dev/null 2>&1 
+    fi
+    
+    my_binary=`which ${OCF_RESKEY_binary}`
+    my_processes=`pgrep -l -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"`
+
+    if [ -n "${my_processes}" ]
+    then
+        ocf_log info "About to SIGKILL the following: ${my_processes}"
+        pkill -KILL -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"
+    fi
+}
+
 cinder_volume_stop() {
     local rc
     local pid
 
+    if [ -e "$VOLUME_FAIL_ON_AMQP_CHECK_FILE" ] ; then
+        rm $VOLUME_FAIL_ON_AMQP_CHECK_FILE >> /dev/null 2>&1 
+    fi
+    
     cinder_volume_status
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
         ocf_log info "OpenStack Cinder Volume (cinder-volume) already stopped"
+        cinder_volume_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -290,6 +416,7 @@ cinder_volume_stop() {
     rc=$?
     if [ $rc -ne 0 ]; then
         ocf_log err "OpenStack Cinder Volume (cinder-volume) couldn't be stopped"
+        cinder_volume_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -316,8 +443,9 @@ cinder_volume_stop() {
         # SIGTERM didn't help either, try SIGKILL
         ocf_log info "OpenStack Cinder Volume (cinder-volume) failed to stop after ${shutdown_timeout}s \
           using SIGTERM. Trying SIGKILL ..."
-        ocf_run kill -s KILL $pid
+        ocf_run kill -s KILL -$pid
     fi
+    cinder_volume_confirm_stop
 
     ocf_log info "OpenStack Cinder Volume (cinder-volume) stopped"
 
@@ -343,7 +471,7 @@ case "$1" in
   start)        cinder_volume_start;;
   stop)         cinder_volume_stop;;
   status)       cinder_volume_status;;
-  monitor)      cinder_volume_monitor;;
+  monitor)      cinder_volume_monitor "check-service-status";;
   validate-all) ;;
   *)            usage
                 exit $OCF_ERR_UNIMPLEMENTED;;

@@ -11,12 +11,17 @@
 # Support: openstack@lists.launchpad.net
 # License: Apache Software License (ASL) 2.0
 #
+# Copyright (c) 2014 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
 #
 # See usage() function below for more details ...
 #
 # OCF instance parameters:
 # OCF_RESKEY_binary
 # OCF_RESKEY_config
+# OCF_RESKEY_pipeline
 # OCF_RESKEY_user
 # OCF_RESKEY_pid
 # OCF_RESKEY_monitor_binary
@@ -27,6 +32,7 @@
 
 : ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}
 . ${OCF_FUNCTIONS_DIR}/ocf-shellfuncs
+. /usr/bin/tsconfig
 
 #######################################################################
 
@@ -34,12 +40,14 @@
 
 OCF_RESKEY_binary_default="ceilometer-agent-central"
 OCF_RESKEY_config_default="/etc/ceilometer/ceilometer.conf"
-OCF_RESKEY_user_default="ceilometer"
+OCF_RESKEY_pipeline_default="/opt/cgcs/ceilometer/${SW_VERSION}/pipeline.yaml"
+OCF_RESKEY_user_default="root"
 OCF_RESKEY_pid_default="$HA_RSCTMP/$OCF_RESOURCE_INSTANCE.pid"
 OCF_RESKEY_amqp_server_port_default="5672"
 
 : ${OCF_RESKEY_binary=${OCF_RESKEY_binary_default}}
 : ${OCF_RESKEY_config=${OCF_RESKEY_config_default}}
+: ${OCF_RESKEY_pipeline=${OCF_RESKEY_pipeline_default}}
 : ${OCF_RESKEY_user=${OCF_RESKEY_user_default}}
 : ${OCF_RESKEY_pid=${OCF_RESKEY_pid_default}}
 : ${OCF_RESKEY_amqp_server_port=${OCF_RESKEY_amqp_server_port_default}}
@@ -91,6 +99,14 @@ Location of the OpenStack Ceilometer Central Agent Service (ceilometer-agent-cen
 </longdesc>
 <shortdesc lang="en">OpenStack Ceilometer Central Agent (ceilometer-agent-central registry) config file</shortdesc>
 <content type="string" default="${OCF_RESKEY_config_default}" />
+</parameter>
+
+<parameter name="pipeline" unique="0" required="0">
+<longdesc lang="en">
+Location of the OpenStack Ceilometer Central Agent Service (ceilometer-agent-central) pipeline file
+</longdesc>
+<shortdesc lang="en">OpenStack Ceilometer Central Agent (ceilometer-agent-central registry) pipeline file</shortdesc>
+<content type="string" default="${OCF_RESKEY_pipeline_default}" />
 </parameter>
 
 <parameter name="user" unique="0" required="0">
@@ -206,6 +222,7 @@ ceilometer_agent_central_status() {
         return $OCF_SUCCESS
     else
         ocf_log info "Old PID file found, but OpenStack Ceilometer Central Agent (ceilometer-agent-central) is not running"
+        rm -f $OCF_RESKEY_pid
         return $OCF_NOT_RUNNING
     fi
 }
@@ -222,16 +239,6 @@ ceilometer_agent_central_monitor() {
     if [ $rc -ne $OCF_SUCCESS ]; then
         return $rc
     fi
-
-    # Check the connections according to the PID.
-    # We are sure to hit the scheduler process and not other Cinder process with the same connection behavior (for example cinder-api)
-        pid=`cat $OCF_RESKEY_pid`
-        scheduler_amqp_check=`netstat -punt | grep -s "$OCF_RESKEY_amqp_server_port" | grep -s "$pid" | grep -qs "ESTABLISHED"`
-        rc=$?
-        if [ $rc -ne 0 ]; then
-        ocf_log err "Central Agent is not connected to the AMQP server : $rc"
-        return $OCF_NOT_RUNNING
-        fi
 
     ocf_log debug "OpenStack Ceilometer Central Agent (ceilometer-agent-central) monitor succeeded"
     return $OCF_SUCCESS
@@ -250,6 +257,7 @@ ceilometer_agent_central_start() {
     # run the actual ceilometer-agent-central daemon. Don't use ocf_run as we're sending the tool's output
     # straight to /dev/null anyway and using ocf_run would break stdout-redirection here.
     su ${OCF_RESKEY_user} -s /bin/sh -c "${OCF_RESKEY_binary} --config-file=$OCF_RESKEY_config \
+       --pipeline_cfg_file=$OCF_RESKEY_pipeline \
        $OCF_RESKEY_additional_parameters"' >> /dev/null 2>&1 & echo $!' > $OCF_RESKEY_pid
 
     # Spin waiting for the server to come up.
@@ -268,6 +276,20 @@ ceilometer_agent_central_start() {
     return $OCF_SUCCESS
 }
 
+ceilometer_agent_central_confirm_stop() {
+    local my_bin
+    local my_processes
+
+    my_binary=`which ${OCF_RESKEY_binary}`
+    my_processes=`pgrep -l -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"`
+
+    if [ -n "${my_processes}" ]
+    then
+        ocf_log info "About to SIGKILL the following: ${my_processes}"
+        pkill -KILL -f "^(python|/usr/bin/python|/usr/bin/python2) ${my_binary}([^\w-]|$)"
+    fi
+}
+
 ceilometer_agent_central_stop() {
     local rc
     local pid
@@ -276,6 +298,7 @@ ceilometer_agent_central_stop() {
     rc=$?
     if [ $rc -eq $OCF_NOT_RUNNING ]; then
         ocf_log info "OpenStack Ceilometer Central Agent (ceilometer-agent-central) already stopped"
+        ceilometer_agent_central_confirm_stop
         return $OCF_SUCCESS
     fi
 
@@ -285,6 +308,7 @@ ceilometer_agent_central_stop() {
     rc=$?
     if [ $rc -ne 0 ]; then
         ocf_log err "OpenStack Ceilometer Central Agent (ceilometer-agent-central) couldn't be stopped"
+        ceilometer_agent_central_confirm_stop
         exit $OCF_ERR_GENERIC
     fi
 
@@ -313,6 +337,7 @@ ceilometer_agent_central_stop() {
           using SIGTERM. Trying SIGKILL ..."
         ocf_run kill -s KILL $pid
     fi
+    ceilometer_agent_central_confirm_stop
 
     ocf_log info "OpenStack Ceilometer Central Agent (ceilometer-agent-central) stopped"
 
