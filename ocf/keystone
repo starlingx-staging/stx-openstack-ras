@@ -211,7 +211,7 @@ keystone_validate() {
 keystone_status() {
     local pid
     local rc
-	 ocf_log info PID file is $OCF_RESKEY_pid 
+	 ocf_log debug PID file is $OCF_RESKEY_pid 
     if [ ! -f $OCF_RESKEY_pid ]; then
 	ocf_log info "pid file not found .."
     ocf_log info "OpenStack Identity (Keystone) is not running .."
